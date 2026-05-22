@@ -174,3 +174,163 @@ def draw_star(
     draw.polygon(points, fill=fill_color, outline=outline_color, width=outline_width)
 
     return frame
+
+
+def draw_ring(
+    frame: Image.Image,
+    center: tuple[int, int],
+    radius: int,
+    thickness: int,
+    color: tuple[int, int, int],
+    alpha: int = 255,
+) -> Image.Image:
+    """
+    Draw an outlined circle ring (no fill) — useful for shockwave/ripple effects.
+
+    Args:
+        frame: PIL Image to draw on
+        center: (x, y) center position
+        radius: Ring radius
+        thickness: Outline thickness in pixels
+        color: RGB color
+        alpha: Opacity 0-255
+
+    Returns:
+        Modified frame
+    """
+    overlay = Image.new("RGBA", frame.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    x, y = center
+    bbox = [x - radius, y - radius, x + radius, y + radius]
+    draw.ellipse(bbox, outline=(*color, alpha), width=thickness)
+    frame_rgba = frame.convert("RGBA")
+    frame_rgba = Image.alpha_composite(frame_rgba, overlay)
+    return frame_rgba.convert("RGB")
+
+
+def draw_trail(
+    frame: Image.Image,
+    positions: list[tuple[int, int]],
+    radius: int,
+    color: tuple[int, int, int],
+    max_alpha: int = 120,
+) -> Image.Image:
+    """
+    Draw a fading motion trail behind a moving object.
+
+    Args:
+        frame: PIL Image to draw on
+        positions: List of (x, y) past positions, oldest first
+        radius: Size of each ghost circle
+        color: RGB color
+        max_alpha: Maximum opacity for the most recent ghost
+
+    Returns:
+        Modified frame
+    """
+    overlay = Image.new("RGBA", frame.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    n = len(positions)
+    for i, (x, y) in enumerate(positions):
+        alpha = int(max_alpha * (i / n))
+        r = max(1, int(radius * (i / n)))
+        bbox = [x - r, y - r, x + r, y + r]
+        draw.ellipse(bbox, fill=(*color, alpha))
+    frame_rgba = frame.convert("RGBA")
+    frame_rgba = Image.alpha_composite(frame_rgba, overlay)
+    return frame_rgba.convert("RGB")
+
+
+def apply_glitch(
+    frame: Image.Image,
+    num_slices: int = 8,
+    max_shift: int = 12,
+    color_fringe: bool = True,
+) -> Image.Image:
+    """
+    Apply a randomized digital glitch effect to a frame.
+
+    Args:
+        frame: PIL Image to distort
+        num_slices: Number of horizontal strips to shift
+        max_shift: Maximum pixel shift per strip
+        color_fringe: If True, also shift the red channel for color aberration
+
+    Returns:
+        Glitched PIL Image
+    """
+    import random
+
+    arr = np.array(frame)
+    height = arr.shape[0]
+    for _ in range(num_slices):
+        y = random.randint(0, height - 8)
+        h = random.randint(2, 8)
+        shift = random.randint(-max_shift, max_shift)
+        arr[y : y + h] = np.roll(arr[y : y + h], shift, axis=1)
+    if color_fringe:
+        shift = random.randint(-6, 6)
+        arr[:, :, 0] = np.roll(arr[:, :, 0], shift, axis=1)  # shift red channel
+    return Image.fromarray(arr)
+
+
+def hue_shift_color(
+    base_hue: float,
+    frame_index: int,
+    total_frames: int,
+    saturation: float = 0.9,
+    value: float = 1.0,
+) -> tuple[int, int, int]:
+    """
+    Get an RGB color cycling through hues over the animation.
+
+    Args:
+        base_hue: Starting hue (0.0–1.0)
+        frame_index: Current frame number
+        total_frames: Total number of frames
+        saturation: HSV saturation (0.0–1.0)
+        value: HSV brightness (0.0–1.0)
+
+    Returns:
+        RGB color tuple
+    """
+    import colorsys
+
+    hue = (base_hue + frame_index / total_frames) % 1.0
+    r, g, b = colorsys.hsv_to_rgb(hue, saturation, value)
+    return (int(r * 255), int(g * 255), int(b * 255))
+
+
+def create_radial_gradient_background(
+    width: int,
+    height: int,
+    center_color: tuple[int, int, int],
+    edge_color: tuple[int, int, int],
+) -> Image.Image:
+    """
+    Create a radial gradient background (center color fades to edge color).
+
+    Args:
+        width: Frame width
+        height: Frame height
+        center_color: RGB color at the center
+        edge_color: RGB color at the edges
+
+    Returns:
+        PIL Image with radial gradient
+    """
+    import math
+
+    frame = Image.new("RGB", (width, height))
+    arr = np.zeros((height, width, 3), dtype=np.uint8)
+    cx, cy = width / 2, height / 2
+    max_dist = math.sqrt(cx**2 + cy**2)
+
+    for y in range(height):
+        for x in range(width):
+            dist = math.sqrt((x - cx) ** 2 + (y - cy) ** 2)
+            t = min(dist / max_dist, 1.0)
+            arr[y, x] = [
+                int(center_color[c] * (1 - t) + edge_color[c] * t) for c in range(3)
+            ]
+    return Image.fromarray(arr)

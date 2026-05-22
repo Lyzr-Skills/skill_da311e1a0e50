@@ -232,3 +232,80 @@ EASING_FUNCTIONS.update(
         "overshoot": ease_back_out,  # Alias
     }
 )
+
+
+# ── v2 additions ──────────────────────────────────────────────────────────────
+
+def ease_in_expo(t: float) -> float:
+    """Exponential ease-in (very slow start, then explosive acceleration)."""
+    return 0.0 if t == 0 else math.pow(2, 10 * t - 10)
+
+
+def ease_out_expo(t: float) -> float:
+    """Exponential ease-out (explosive start, then hard stop)."""
+    return 1.0 if t == 1 else 1 - math.pow(2, -10 * t)
+
+
+def ease_in_out_expo(t: float) -> float:
+    """Exponential ease-in-out."""
+    if t == 0:
+        return 0.0
+    if t == 1:
+        return 1.0
+    if t < 0.5:
+        return math.pow(2, 20 * t - 10) / 2
+    return (2 - math.pow(2, -20 * t + 10)) / 2
+
+
+def ease_in_sine(t: float) -> float:
+    """Sine ease-in (gentle acceleration using a sine curve)."""
+    return 1 - math.cos((t * math.pi) / 2)
+
+
+def ease_out_sine(t: float) -> float:
+    """Sine ease-out (gentle deceleration using a sine curve)."""
+    return math.sin((t * math.pi) / 2)
+
+
+def ease_in_out_sine(t: float) -> float:
+    """Sine ease-in-out (smooth and symmetrical — great for pulsing/breathing)."""
+    return -(math.cos(math.pi * t) - 1) / 2
+
+
+def ping_pong(t: float) -> float:
+    """
+    Maps t (0→1) to a value that goes 0→1→0 (forward then back).
+    Perfect for looping animations that reverse smoothly without a hard cut.
+
+    Example:
+        scale = ping_pong(i / num_frames)  # pulses in and out
+    """
+    return math.sin(t * math.pi)
+
+
+def steps(t: float, n: int) -> float:
+    """
+    Stepped easing — snaps to n discrete levels instead of smooth interpolation.
+    Great for retro/pixel-style animations or counter increments.
+
+    Args:
+        t: Progress 0.0–1.0
+        n: Number of steps
+
+    Returns:
+        Stepped value 0.0–1.0
+    """
+    return math.floor(t * n) / n
+
+
+EASING_FUNCTIONS.update(
+    {
+        "expo_in": ease_in_expo,
+        "expo_out": ease_out_expo,
+        "expo_in_out": ease_in_out_expo,
+        "sine_in": ease_in_sine,
+        "sine_out": ease_out_sine,
+        "sine_in_out": ease_in_out_sine,
+        "ping_pong": ping_pong,
+    }
+)

@@ -26,7 +26,7 @@ from core.gif_builder import GIFBuilder
 from PIL import Image, ImageDraw
 
 # 1. Create builder
-builder = GIFBuilder(width=128, height=128, fps=10)
+builder = GIFBuilder(width=128, height=128, fps=10)  # loop=0 (infinite), loop=1 (play once)
 
 # 2. Generate frames
 for i in range(12):
@@ -113,7 +113,7 @@ Be creative and detailed! A good Slack GIF should look polished, not like placeh
 ### GIFBuilder (`core.gif_builder`)
 Assembles frames and optimizes for Slack:
 ```python
-builder = GIFBuilder(width=128, height=128, fps=10)
+builder = GIFBuilder(width=128, height=128, fps=10)  # loop=0 (infinite), loop=1 (play once)
 builder.add_frame(frame)  # Add PIL Image
 builder.add_frames(frames)  # Add list of frames
 builder.save('out.gif', num_colors=48, optimize_for_emoji=True, remove_duplicates=True)
@@ -122,14 +122,18 @@ builder.save('out.gif', num_colors=48, optimize_for_emoji=True, remove_duplicate
 ### Validators (`core.validators`)
 Check if GIF meets Slack requirements:
 ```python
-from core.validators import validate_gif, is_slack_ready
+from core.validators import validate_gif, is_slack_ready, get_repair_suggestions
 
-# Detailed validation
+# Detailed validation (checks dimensions, file size, fps, frame count)
 passes, info = validate_gif('my.gif', is_emoji=True, verbose=True)
 
 # Quick check
 if is_slack_ready('my.gif'):
     print("Ready!")
+
+# Get actionable fix hints when something fails
+for tip in get_repair_suggestions('my.gif'):
+    print(tip)
 ```
 
 ### Easing Functions (`core.easing`)
@@ -144,18 +148,26 @@ t = i / (num_frames - 1)
 y = interpolate(start=0, end=400, t=t, easing='ease_out')
 
 # Available: linear, ease_in, ease_out, ease_in_out,
-#           bounce_out, elastic_out, back_out
+#           bounce_out, elastic_out, back_out, overshoot,
+#           expo_in, expo_out, expo_in_out,
+#           sine_in, sine_out, sine_in_out,
+#           ping_pong  (0→1→0, great for looping pulses)
 ```
 
 ### Frame Helpers (`core.frame_composer`)
 Convenience functions for common needs:
 ```python
 from core.frame_composer import (
-    create_blank_frame,         # Solid color background
-    create_gradient_background,  # Vertical gradient
-    draw_circle,                # Helper for circles
-    draw_text,                  # Simple text rendering
-    draw_star                   # 5-pointed star
+    create_blank_frame,               # Solid color background
+    create_gradient_background,        # Vertical gradient
+    create_radial_gradient_background, # Radial gradient (center → edge)
+    draw_circle,                      # Helper for circles
+    draw_text,                        # Simple text rendering
+    draw_star,                        # 5-pointed star
+    draw_ring,                        # Outlined ring with alpha (shockwave/ripple)
+    draw_trail,                       # Fading motion trail behind moving objects
+    apply_glitch,                     # Digital glitch / pixel-shift distortion
+    hue_shift_color,                  # Cycling RGB color across frames
 )
 ```
 
@@ -211,6 +223,166 @@ Create particles radiating outward:
 - Add gravity: `vy += gravity_constant`
 - Fade out particles over time (reduce alpha)
 
+### Typewriter
+Reveal text one character at a time:
+- Slice string: `text[:int(t * len(text))]`
+- Add a blinking cursor (`|`) at the end
+- Use `ease_in_out` for consistent character pacing
+- Works great for announcements or status messages
+
+```python
+full_text = "Hello!"
+for i in range(num_frames):
+    t = i / (num_frames - 1)
+    visible = full_text[:int(t * len(full_text)) + 1]
+    cursor = "|" if int(i * 2 / num_frames) % 2 == 0 else ""
+    draw_text(frame, visible + cursor, position, centered=True)
+```
+
+### Morph / Shape Tween
+Smoothly transition between two shapes by interpolating their point lists:
+- Both shapes must have the same number of points
+- Interpolate each (x, y) pair using `interpolate()`
+- Use `ease_in_out` for a smooth feel
+
+```python
+from core.easing import interpolate
+
+for i in range(num_frames):
+    t = i / (num_frames - 1)
+    morphed = [
+        (interpolate(p1[0], p2[0], t, 'ease_in_out'),
+         interpolate(p1[1], p2[1], t, 'ease_in_out'))
+        for p1, p2 in zip(shape_a_points, shape_b_points)
+    ]
+    draw.polygon(morphed, fill=color)
+```
+
+### Wave / Ripple
+Animate a sine wave moving across the frame:
+- Offset each column or row by `math.sin(x / wavelength + phase)`
+- Increment phase each frame to make the wave travel
+- Great for water, flags, or energetic backgrounds
+
+```python
+phase = i * 0.4  # advances each frame
+for x in range(width):
+    y_offset = int(math.sin(x / 12 + phase) * amplitude)
+    draw.line([(x, cy + y_offset), (x, cy + y_offset + thickness)], fill=color)
+```
+
+### Trail / Motion Blur
+Leave a fading ghost behind a moving object for a speed effect:
+- Store last N positions in a list
+- Draw each ghost at reduced opacity (use RGBA and `Image.blend`)
+- Oldest ghost = most transparent
+
+```python
+trail = []  # list of (x, y) positions
+for i in range(num_frames):
+    trail.append(current_pos)
+    if len(trail) > 6:
+        trail.pop(0)
+    for j, pos in enumerate(trail):
+        alpha = int(255 * (j / len(trail)) * 0.5)
+        # draw ghost shape at pos with alpha
+```
+
+### Countdown / Number Flip
+Animate a number counting down or up, with a flip transition:
+- Scale the number vertically from 1.0 → 0.0 (first half) then 0.0 → 1.0 (second half)
+- Change the digit at the midpoint (scale = 0)
+- Creates a classic split-flap display effect
+
+```python
+for i in range(num_frames):
+    t = i / (num_frames - 1)
+    scale_y = abs(math.cos(t * math.pi))  # 1 → 0 → 1
+    digit = str(start_num - int(t * total_count))
+    # Draw digit scaled vertically by scale_y
+```
+
+### Orbit
+One or more objects orbit a center point:
+- `x = cx + radius * math.cos(angle + offset * idx)`
+- `y = cy + radius * math.sin(angle + offset * idx)`
+- Increment angle each frame; vary radius or size for depth
+
+```python
+import math
+num_dots = 3
+for i in range(num_frames):
+    angle = i * (2 * math.pi / num_frames)
+    for idx in range(num_dots):
+        offset = idx * (2 * math.pi / num_dots)
+        x = cx + radius * math.cos(angle + offset)
+        y = cy + radius * math.sin(angle + offset)
+        draw_circle(frame, (int(x), int(y)), dot_radius, fill_color=color)
+```
+
+### Glitch
+Randomized digital corruption effect:
+- Slice horizontal strips of the frame and shift them left/right randomly
+- Optionally swap RGB channels for color fringing
+- Apply only on certain frames for an intermittent glitch feel
+
+```python
+import random
+glitch_frame = frame.copy()
+arr = np.array(glitch_frame)
+for _ in range(8):
+    y = random.randint(0, height - 8)
+    h = random.randint(2, 8)
+    shift = random.randint(-12, 12)
+    strip = np.roll(arr[y:y+h], shift, axis=1)
+    arr[y:y+h] = strip
+glitch_frame = Image.fromarray(arr)
+```
+
+### Color Cycle / Hue Shift
+Cycle through colors over time using HSV:
+- Convert base color to HSV, increment hue each frame
+- Convert back to RGB for drawing
+- Creates rainbow or color-breathing effects
+
+```python
+import colorsys
+for i in range(num_frames):
+    hue = (i / num_frames) % 1.0
+    r, g, b = colorsys.hsv_to_rgb(hue, 0.9, 1.0)
+    color = (int(r * 255), int(g * 255), int(b * 255))
+    # draw with color
+```
+
+### Flip (2D Card Flip)
+Simulate a card or object flipping over:
+- Scale width from 1.0 → 0 (first half), then 0 → 1.0 (second half)
+- Swap content at the midpoint
+- Use `ease_in_out` for natural deceleration at the ends
+
+```python
+for i in range(num_frames):
+    t = i / (num_frames - 1)
+    scale_x = abs(math.cos(t * math.pi))
+    content = front_img if t < 0.5 else back_img
+    scaled = content.resize((int(width * scale_x) or 1, height))
+    frame.paste(scaled, ((width - scaled.width) // 2, 0))
+```
+
+### Shockwave / Ripple Expand
+A ring expands outward from a center point and fades:
+- Each frame: increase ring radius, decrease opacity
+- Draw with `draw.ellipse()` using outline only (no fill)
+- Layer multiple rings at staggered offsets for a ripple effect
+
+```python
+for i in range(num_frames):
+    t = i / (num_frames - 1)
+    radius = int(t * max_radius)
+    alpha = int(255 * (1 - t))
+    # draw outline circle at (cx, cy) with current radius and alpha
+```
+
 ## Optimization Strategies
 
 Only when asked to make the file size smaller, implement a few of the following methods:
@@ -246,6 +418,26 @@ It does NOT provide:
 **Note on user uploads**: This skill doesn't include pre-built graphics, but if a user uploads an image, use PIL to load and work with it - interpret based on their request whether they want it used directly or just as inspiration.
 
 Be creative! Combine concepts (bouncing + rotating, pulsing + sliding, etc.) and use PIL's full capabilities.
+
+## What's New in v2
+
+### GIFBuilder
+- **`loop` parameter** — control how many times the GIF loops (`0` = infinite, `1` = play once)
+- **Per-frame `duration_ms`** — override timing on any individual frame for variable-speed animations
+- **`add_hold(ms)`** — freeze the last frame for a pause before the loop restarts
+- **`pingpong=True`** in `save()` — automatically plays forward then reverses (boomerang effect)
+- **Duration-preserving deduplication** — removed frames' time is merged into the preceding frame, keeping total length correct
+
+### Validators
+- Now checks **Slack file-size limits** (512 KB for emoji, 50 MB for message GIFs)
+- Now checks **FPS range** — warns if outside the recommended 10–30 range
+- **`get_repair_suggestions(path)`** — returns plain-English fix hints for any failing check
+
+### Easing
+- New: `expo_in`, `expo_out`, `expo_in_out` — dramatic explosive acceleration/deceleration
+- New: `sine_in`, `sine_out`, `sine_in_out` — gentle, organic sinusoidal motion
+- New: `ping_pong(t)` — maps 0→1→0, perfect for smooth looping pulses without a hard cut
+- New: `steps(t, n)` — snaps to n discrete levels for retro/counter-style animations
 
 ## Dependencies
 
